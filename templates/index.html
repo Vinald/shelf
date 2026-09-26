@@ -42,6 +42,19 @@
     font-size: 14px;
   }
   #search::placeholder { color: #7f849c; }
+  #open-file-btn {
+    margin: 0 16px 12px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px dashed #45475a;
+    background: transparent;
+    color: #cdd6f4;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  #open-file-btn:hover {
+    background: #313244;
+  }
   #book-list {
     list-style: none;
     margin: 0;
@@ -189,6 +202,8 @@
   <div id="sidebar">
     <h1>📚 My Library</h1>
     <input id="search" type="text" placeholder="Search books...">
+    <button id="open-file-btn">📂 Open file from computer…</button>
+    <input id="file-input" type="file" accept=".pdf,.md" style="display:none;">
     <ul id="book-list"></ul>
   </div>
   <div id="main">
@@ -244,6 +259,8 @@ const zoomInBtn = document.getElementById("zoom-in");
 const zoomOutBtn = document.getElementById("zoom-out");
 const readAloudBtn = document.getElementById("read-aloud-btn");
 const stopReadBtn = document.getElementById("stop-read-btn");
+const openFileBtn = document.getElementById("open-file-btn");
+const fileInput = document.getElementById("file-input");
 
 let readAloudState = "idle"; // idle | speaking | paused
 
@@ -283,6 +300,43 @@ async function loadBooks() {
   renderBookList(searchEl.value);
 }
 
+async function displayMarkdown(text) {
+  canvas.style.display = "none";
+  mdViewerEl.style.display = "block";
+  currentPdf = null;
+  totalPages = 1;
+  currentPage = 1;
+  prevBtn.disabled = true;
+  nextBtn.disabled = true;
+  zoomInBtn.disabled = true;
+  zoomOutBtn.disabled = true;
+  pageInfoEl.textContent = "";
+  mdViewerEl.innerHTML = text
+    ? DOMPurify.sanitize(marked.parse(text))
+    : "Error loading document";
+}
+
+async function displayPdf(docSource) {
+  mdViewerEl.style.display = "none";
+  canvas.style.display = "block";
+
+  try {
+    currentPdf = await pdfjsLib.getDocument(docSource).promise;
+    totalPages = currentPdf.numPages;
+    currentPage = 1;
+
+    prevBtn.disabled = false;
+    nextBtn.disabled = false;
+    zoomInBtn.disabled = false;
+    zoomOutBtn.disabled = false;
+
+    await renderPage(currentPage);
+  } catch (err) {
+    console.error("Failed to load PDF:", err);
+    pageInfoEl.textContent = "Error loading PDF";
+  }
+}
+
 async function openBook(book) {
   stopReadAloud();
   currentBookName = book.name;
@@ -296,45 +350,53 @@ async function openBook(book) {
   const url = "/read/" + encodeURIComponent(book.name);
 
   if (book.type === "md") {
-    canvas.style.display = "none";
-    mdViewerEl.style.display = "block";
-    currentPdf = null;
-    totalPages = 1;
-    currentPage = 1;
-    prevBtn.disabled = true;
-    nextBtn.disabled = true;
-    zoomInBtn.disabled = true;
-    zoomOutBtn.disabled = true;
-    pageInfoEl.textContent = "";
-
+    let text = "";
     try {
       const res = await fetch(url);
-      const text = await res.text();
-      mdViewerEl.innerHTML = DOMPurify.sanitize(marked.parse(text));
+      text = await res.text();
     } catch (err) {
       console.error("Failed to load markdown:", err);
-      mdViewerEl.textContent = "Error loading document";
     }
+    await displayMarkdown(text);
     return;
   }
 
-  mdViewerEl.style.display = "none";
-  canvas.style.display = "block";
+  await displayPdf(url);
+}
+
+async function openLocalFile(file) {
+  const ext = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
+  const type = ext === ".pdf" ? "pdf" : ext === ".md" ? "md" : null;
+  if (!type) {
+    alert("Only .pdf and .md files are supported");
+    return;
+  }
+
+  stopReadAloud();
+  currentBookName = null;
+  currentBookType = type;
+  bookTitleEl.textContent = file.name;
+  renderBookList(searchEl.value);
+
+  welcomeEl.style.display = "none";
+  readAloudBtn.disabled = false;
+
+  if (type === "md") {
+    let text = "";
+    try {
+      text = await file.text();
+    } catch (err) {
+      console.error("Failed to read markdown file:", err);
+    }
+    await displayMarkdown(text);
+    return;
+  }
 
   try {
-    currentPdf = await pdfjsLib.getDocument(url).promise;
-    totalPages = currentPdf.numPages;
-    currentPage = 1;
-
-    prevBtn.disabled = false;
-    nextBtn.disabled = false;
-    zoomInBtn.disabled = false;
-    zoomOutBtn.disabled = false;
-
-    await renderPage(currentPage);
+    const buffer = await file.arrayBuffer();
+    await displayPdf({ data: buffer });
   } catch (err) {
-    console.error("Failed to load PDF:", err);
-    pageInfoEl.textContent = "Error loading PDF";
+    console.error("Failed to read PDF file:", err);
   }
 }
 
@@ -475,6 +537,13 @@ readAloudBtn.addEventListener("click", () => {
 });
 
 stopReadBtn.addEventListener("click", stopReadAloud);
+
+openFileBtn.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => {
+  const file = fileInput.files[0];
+  if (file) openLocalFile(file);
+  fileInput.value = "";
+});
 
 loadBooks();
 </script>
