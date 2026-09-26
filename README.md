@@ -14,7 +14,7 @@ A local web app for reading your PDF and Markdown library in the browser.
 
 ```
 python3 -m venv venv
-./venv/bin/pip install flask
+./venv/bin/pip install -r requirements.txt
 ```
 
 ## Run
