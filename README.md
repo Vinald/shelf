@@ -71,8 +71,8 @@ your library lives somewhere else.
 Or pull the prebuilt image instead of building it:
 
 ```
-docker pull ghcr.io/vinald/shelf:1.0
-docker run -d -p 5000:5000 -v ~/Books:/books ghcr.io/vinald/shelf:1.0
+docker pull ghcr.io/vinald/shelf:1.1
+docker run -d -p 5000:5000 -v ~/Books:/books ghcr.io/vinald/shelf:1.1
 ```
 
 ## How it works
