@@ -1,7 +1,6 @@
 import os
 
 from flask import Flask, abort, jsonify, render_template, send_file
-from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 
@@ -26,10 +25,13 @@ def books():
 
 @app.route("/read/<path:name>")
 def read(name):
-    safe_name = secure_filename(name)
-    path = os.path.join(BOOKS_DIR, safe_name)
+    if os.path.basename(name) != name or not name.lower().endswith(".pdf"):
+        abort(404)
+
+    path = os.path.join(BOOKS_DIR, name)
     if not os.path.isfile(path):
         abort(404)
+
     return send_file(path, mimetype="application/pdf")
 
 
