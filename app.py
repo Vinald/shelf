@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 app = FastAPI()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-BOOKS_DIR = os.path.expanduser("~/Books")
+BOOKS_DIR = os.environ.get("BOOKS_DIR", os.path.expanduser("~/Books"))
 
 EXTENSIONS = {".pdf": "pdf", ".md": "md"}
 
@@ -48,4 +48,6 @@ def read(name: str):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=5000)
+    host = os.environ.get("HOST", "127.0.0.1")
+    port = int(os.environ.get("PORT", "5000"))
+    uvicorn.run(app, host=host, port=port)

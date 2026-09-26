@@ -28,4 +28,15 @@ Then open http://localhost:5000
 ## Library folder
 
 By default the app looks for `.pdf` and `.md` files in `~/Books`. Change
-`BOOKS_DIR` at the top of `app.py` to point somewhere else.
+`BOOKS_DIR` at the top of `app.py` to point somewhere else, or set the
+`BOOKS_DIR` environment variable.
+
+## Docker
+
+```
+docker compose up --build
+```
+
+This mounts `~/Books` from the host into the container and serves the app
+at http://localhost:5000. Edit the volume line in `docker-compose.yml` if
+your library lives somewhere else.
