@@ -105,6 +105,13 @@
     opacity: 0.4;
     cursor: default;
   }
+  #toolbar button.active {
+    background: #89b4fa;
+    color: #1e1e2e;
+  }
+  #stop-read-btn {
+    display: none;
+  }
   #page-info {
     margin: 0 8px;
     font-size: 14px;
@@ -158,6 +165,8 @@
       <button id="next-page" disabled>Next ▶</button>
       <button id="zoom-out" disabled>−</button>
       <button id="zoom-in" disabled>+</button>
+      <button id="read-aloud-btn" disabled>🔊 Read Aloud</button>
+      <button id="stop-read-btn">■ Stop</button>
       <span id="page-info">–</span>
       <span id="book-title"></span>
     </div>
@@ -196,6 +205,10 @@ const prevBtn = document.getElementById("prev-page");
 const nextBtn = document.getElementById("next-page");
 const zoomInBtn = document.getElementById("zoom-in");
 const zoomOutBtn = document.getElementById("zoom-out");
+const readAloudBtn = document.getElementById("read-aloud-btn");
+const stopReadBtn = document.getElementById("stop-read-btn");
+
+let readAloudState = "idle"; // idle | speaking | paused
 
 function renderBookList(filter = "") {
   const q = filter.trim().toLowerCase();
@@ -252,6 +265,7 @@ async function openBook(book) {
     nextBtn.disabled = false;
     zoomInBtn.disabled = false;
     zoomOutBtn.disabled = false;
+    readAloudBtn.disabled = false;
 
     await renderPage(currentPage);
   } catch (err) {
@@ -288,6 +302,7 @@ async function renderPage(num) {
 
 prevBtn.addEventListener("click", () => {
   if (currentPage > 1) {
+    stopReadAloud();
     currentPage -= 1;
     renderPage(currentPage);
   }
@@ -295,6 +310,7 @@ prevBtn.addEventListener("click", () => {
 
 nextBtn.addEventListener("click", () => {
   if (currentPage < totalPages) {
+    stopReadAloud();
     currentPage += 1;
     renderPage(currentPage);
   }
@@ -311,6 +327,83 @@ zoomOutBtn.addEventListener("click", () => {
 });
 
 searchEl.addEventListener("input", () => renderBookList(searchEl.value));
+
+async function getPageText(num) {
+  const page = await currentPdf.getPage(num);
+  const content = await page.getTextContent();
+  return content.items.map(item => item.str).join(" ").trim();
+}
+
+function updateReadAloudUI() {
+  readAloudBtn.classList.toggle("active", readAloudState !== "idle");
+  stopReadBtn.style.display = readAloudState === "idle" ? "none" : "inline-block";
+  if (readAloudState === "idle") readAloudBtn.textContent = "🔊 Read Aloud";
+  else if (readAloudState === "speaking") readAloudBtn.textContent = "⏸ Pause";
+  else if (readAloudState === "paused") readAloudBtn.textContent = "▶ Resume";
+}
+
+async function speakCurrentPage() {
+  let text;
+  try {
+    text = await getPageText(currentPage);
+  } catch (err) {
+    console.error("Failed to extract page text:", err);
+    stopReadAloud();
+    return;
+  }
+
+  if (!text) {
+    await advancePageForReading();
+    return;
+  }
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.onend = () => {
+    if (readAloudState === "speaking") advancePageForReading();
+  };
+  utterance.onerror = (e) => {
+    if (e.error !== "interrupted" && e.error !== "canceled") {
+      console.error("Speech synthesis error:", e.error);
+      stopReadAloud();
+    }
+  };
+  speechSynthesis.speak(utterance);
+}
+
+async function advancePageForReading() {
+  if (currentPage < totalPages) {
+    currentPage += 1;
+    await renderPage(currentPage);
+    speakCurrentPage();
+  } else {
+    readAloudState = "idle";
+    updateReadAloudUI();
+  }
+}
+
+function stopReadAloud() {
+  speechSynthesis.cancel();
+  readAloudState = "idle";
+  updateReadAloudUI();
+}
+
+readAloudBtn.addEventListener("click", () => {
+  if (readAloudState === "idle") {
+    readAloudState = "speaking";
+    updateReadAloudUI();
+    speakCurrentPage();
+  } else if (readAloudState === "speaking") {
+    speechSynthesis.pause();
+    readAloudState = "paused";
+    updateReadAloudUI();
+  } else if (readAloudState === "paused") {
+    speechSynthesis.resume();
+    readAloudState = "speaking";
+    updateReadAloudUI();
+  }
+});
+
+stopReadBtn.addEventListener("click", stopReadAloud);
 
 loadBooks();
 </script>
