@@ -62,7 +62,7 @@
     overflow-y: auto;
     flex: 1;
   }
-  #book-list li {
+  #book-list li, #recent-list li {
     padding: 10px 12px;
     border-radius: 6px;
     cursor: pointer;
@@ -71,10 +71,10 @@
     word-break: break-word;
     margin-bottom: 2px;
   }
-  #book-list li:hover {
+  #book-list li:hover, #recent-list li:hover {
     background: #313244;
   }
-  #book-list li.active {
+  #book-list li.active, #recent-list li.active {
     background: #45475a;
     color: #ffffff;
   }
@@ -85,6 +85,24 @@
     padding: 10px 12px;
   }
   #book-list .empty:hover { background: none; }
+  #recent-section {
+    display: none;
+    padding: 0 8px;
+    border-bottom: 1px solid #313244;
+    margin-bottom: 8px;
+  }
+  #recent-section .section-label {
+    padding: 0 4px 6px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #7f849c;
+  }
+  #recent-list {
+    list-style: none;
+    margin: 0;
+    padding: 0 0 8px;
+  }
 
   /* Right panel */
   #main {
@@ -124,6 +142,19 @@
   }
   #stop-read-btn {
     display: none;
+  }
+  #speed-select {
+    background: #45475a;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #speed-select:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
   #page-info {
     margin: 0 8px;
@@ -204,6 +235,10 @@
     <input id="search" type="text" placeholder="Search books...">
     <button id="open-file-btn">📂 Open file from computer…</button>
     <input id="file-input" type="file" accept=".pdf,.md" style="display:none;">
+    <div id="recent-section">
+      <div class="section-label">Recent</div>
+      <ul id="recent-list"></ul>
+    </div>
     <ul id="book-list"></ul>
   </div>
   <div id="main">
@@ -214,6 +249,15 @@
       <button id="zoom-in" disabled>+</button>
       <button id="read-aloud-btn" disabled>🔊 Read Aloud</button>
       <button id="stop-read-btn">■ Stop</button>
+      <select id="speed-select" disabled title="Read aloud speed">
+        <option value="0.5">0.5x</option>
+        <option value="0.75">0.75x</option>
+        <option value="1" selected>1x</option>
+        <option value="1.25">1.25x</option>
+        <option value="1.5">1.5x</option>
+        <option value="1.75">1.75x</option>
+        <option value="2">2x</option>
+      </select>
       <span id="page-info">–</span>
       <span id="book-title"></span>
     </div>
@@ -261,8 +305,39 @@ const readAloudBtn = document.getElementById("read-aloud-btn");
 const stopReadBtn = document.getElementById("stop-read-btn");
 const openFileBtn = document.getElementById("open-file-btn");
 const fileInput = document.getElementById("file-input");
+const speedSelect = document.getElementById("speed-select");
+const recentSectionEl = document.getElementById("recent-section");
+const recentListEl = document.getElementById("recent-list");
 
 let readAloudState = "idle"; // idle | speaking | paused
+
+const PROGRESS_KEY = "shelf:progress";
+const RATE_KEY = "shelf:read-rate";
+
+function loadProgress() {
+  try {
+    return JSON.parse(localStorage.getItem(PROGRESS_KEY)) || {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveProgress(bookName, page) {
+  try {
+    const data = loadProgress();
+    data[bookName] = { page, lastOpened: Date.now() };
+    localStorage.setItem(PROGRESS_KEY, JSON.stringify(data));
+  } catch (e) {
+    // ignore storage errors (private browsing, quota, etc.)
+  }
+}
+
+let readRate = 1;
+try {
+  readRate = parseFloat(localStorage.getItem(RATE_KEY)) || 1;
+} catch (e) {
+  readRate = 1;
+}
 
 function renderBookList(filter = "") {
   const q = filter.trim().toLowerCase();
@@ -290,6 +365,30 @@ function renderBookList(filter = "") {
 
 let currentBookName = null;
 
+function renderRecent() {
+  const progress = loadProgress();
+  const recent = Object.entries(progress)
+    .sort((a, b) => b[1].lastOpened - a[1].lastOpened)
+    .slice(0, 5)
+    .map(([name]) => books.find(b => b.name === name))
+    .filter(Boolean);
+
+  if (recent.length === 0) {
+    recentSectionEl.style.display = "none";
+    return;
+  }
+
+  recentSectionEl.style.display = "block";
+  recentListEl.innerHTML = "";
+  recent.forEach(book => {
+    const li = document.createElement("li");
+    li.textContent = book.title;
+    if (currentBookName === book.name) li.classList.add("active");
+    li.addEventListener("click", () => openBook(book));
+    recentListEl.appendChild(li);
+  });
+}
+
 async function loadBooks() {
   try {
     const res = await fetch("/books");
@@ -298,6 +397,7 @@ async function loadBooks() {
     books = [];
   }
   renderBookList(searchEl.value);
+  renderRecent();
 }
 
 async function displayMarkdown(text) {
@@ -316,14 +416,14 @@ async function displayMarkdown(text) {
     : "Error loading document";
 }
 
-async function displayPdf(docSource) {
+async function displayPdf(docSource, startPage = 1) {
   mdViewerEl.style.display = "none";
   canvas.style.display = "block";
 
   try {
     currentPdf = await pdfjsLib.getDocument(docSource).promise;
     totalPages = currentPdf.numPages;
-    currentPage = 1;
+    currentPage = startPage >= 1 && startPage <= totalPages ? startPage : 1;
 
     prevBtn.disabled = false;
     nextBtn.disabled = false;
@@ -343,9 +443,11 @@ async function openBook(book) {
   currentBookType = book.type;
   bookTitleEl.textContent = book.title;
   renderBookList(searchEl.value);
+  renderRecent();
 
   welcomeEl.style.display = "none";
   readAloudBtn.disabled = false;
+  speedSelect.disabled = false;
 
   const url = "/read/" + encodeURIComponent(book.name);
 
@@ -358,10 +460,15 @@ async function openBook(book) {
       console.error("Failed to load markdown:", err);
     }
     await displayMarkdown(text);
+    saveProgress(book.name, 1);
+    renderRecent();
     return;
   }
 
-  await displayPdf(url);
+  const savedPage = loadProgress()[book.name]?.page || 1;
+  await displayPdf(url, savedPage);
+  saveProgress(book.name, currentPage);
+  renderRecent();
 }
 
 async function openLocalFile(file) {
@@ -380,6 +487,7 @@ async function openLocalFile(file) {
 
   welcomeEl.style.display = "none";
   readAloudBtn.disabled = false;
+  speedSelect.disabled = false;
 
   if (type === "md") {
     let text = "";
@@ -431,6 +539,7 @@ prevBtn.addEventListener("click", () => {
     stopReadAloud();
     currentPage -= 1;
     renderPage(currentPage);
+    if (currentBookName) saveProgress(currentBookName, currentPage);
   }
 });
 
@@ -439,6 +548,7 @@ nextBtn.addEventListener("click", () => {
     stopReadAloud();
     currentPage += 1;
     renderPage(currentPage);
+    if (currentBookName) saveProgress(currentBookName, currentPage);
   }
 });
 
@@ -475,6 +585,8 @@ function updateReadAloudUI() {
   else if (readAloudState === "paused") readAloudBtn.textContent = "▶ Resume";
 }
 
+let currentUtterance = null;
+
 async function speakCurrentPage() {
   let text;
   try {
@@ -491,15 +603,20 @@ async function speakCurrentPage() {
   }
 
   const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = readRate;
   utterance.onend = () => {
-    if (readAloudState === "speaking") advancePageForReading();
+    if (currentUtterance === utterance && readAloudState === "speaking") {
+      advancePageForReading();
+    }
   };
   utterance.onerror = (e) => {
+    if (currentUtterance !== utterance) return;
     if (e.error !== "interrupted" && e.error !== "canceled") {
       console.error("Speech synthesis error:", e.error);
       stopReadAloud();
     }
   };
+  currentUtterance = utterance;
   speechSynthesis.speak(utterance);
 }
 
@@ -507,6 +624,7 @@ async function advancePageForReading() {
   if (currentPage < totalPages) {
     currentPage += 1;
     await renderPage(currentPage);
+    if (currentBookName) saveProgress(currentBookName, currentPage);
     speakCurrentPage();
   } else {
     readAloudState = "idle";
@@ -516,6 +634,7 @@ async function advancePageForReading() {
 
 function stopReadAloud() {
   speechSynthesis.cancel();
+  currentUtterance = null;
   readAloudState = "idle";
   updateReadAloudUI();
 }
@@ -537,6 +656,20 @@ readAloudBtn.addEventListener("click", () => {
 });
 
 stopReadBtn.addEventListener("click", stopReadAloud);
+
+speedSelect.value = String(readRate);
+speedSelect.addEventListener("change", () => {
+  readRate = parseFloat(speedSelect.value);
+  try {
+    localStorage.setItem(RATE_KEY, String(readRate));
+  } catch (e) {
+    // ignore storage errors
+  }
+  if (readAloudState === "speaking") {
+    speechSynthesis.cancel();
+    speakCurrentPage();
+  }
+});
 
 openFileBtn.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", () => {
