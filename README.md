@@ -1,4 +1,4 @@
-# pdf-reader
+# shelf
 
 A local web app for reading your PDF and Markdown library in the browser.
 
