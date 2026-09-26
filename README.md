@@ -58,6 +58,8 @@ You can also just edit `BOOKS_DIR` directly at the top of `app.py`.
 
 ## Docker
 
+Build it yourself:
+
 ```
 docker compose up --build
 ```
@@ -65,6 +67,13 @@ docker compose up --build
 This mounts `~/Books` from the host into the container and serves the app
 at http://localhost:5000. Edit the volume line in `docker-compose.yml` if
 your library lives somewhere else.
+
+Or pull the prebuilt image instead of building it:
+
+```
+docker pull ghcr.io/vinald/shelf:1.0
+docker run -d -p 5000:5000 -v ~/Books:/books ghcr.io/vinald/shelf:1.0
+```
 
 ## How it works
 
